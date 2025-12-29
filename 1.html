@@ -1,0 +1,1587 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ИИ: ПАЛАЧ — World Analysis</title>
+  <style>
+    :root{
+      --ice: rgba(245,248,255,.96);
+      --muted: rgba(205,215,235,.72);
+      --blue: rgba(42,168,255,.95);
+      --blue2: rgba(10,76,255,.72);
+
+      --red: rgba(255, 60, 72, .95);
+      --red2: rgba(255, 120, 130, .55);
+      --possible: rgba(210,225,245,.55);
+
+      --stroke: rgba(170,190,230,.14);
+      --shadow: rgba(0,0,0,.72);
+      --ease: cubic-bezier(.2,.85,.15,1);
+    }
+
+    *{ box-sizing:border-box; }
+    html,body{ height:100%; }
+    body{
+      margin:0;
+      overflow:hidden;
+      background:#04050a;
+      color:var(--ice);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Noto Sans", "Liberation Sans", sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      letter-spacing:.01em;
+    }
+
+    #gl{
+      position:fixed; inset:0;
+      width:100%; height:100%;
+      display:block;
+      background:#04050a;
+    }
+
+    #map{
+      position:fixed; inset:0;
+      width:100%; height:100%;
+      display:block;
+      pointer-events:auto;
+      mix-blend-mode: screen;
+      opacity: 1;
+      filter: drop-shadow(0 18px 70px rgba(0,0,0,.65));
+    }
+
+    .vignette{
+      pointer-events:none;
+      position:fixed; inset:-2px;
+      background: radial-gradient(closest-side at 50% 42%,
+        rgba(0,0,0,0) 0%,
+        rgba(0,0,0,.35) 56%,
+        rgba(0,0,0,.88) 100%);
+      mix-blend-mode: multiply;
+      opacity: .92;
+    }
+    .grain{
+      pointer-events:none;
+      position:fixed; inset:-20%;
+      background-image:
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='260' height='260' filter='url(%23n)' opacity='.38'/%3E%3C/svg%3E");
+      opacity: .11;
+      mix-blend-mode: overlay;
+      transform: translateZ(0);
+      animation: grainMove 6s steps(10,end) infinite;
+    }
+    @keyframes grainMove{
+      0%{ transform:translate(-4%, -2%) scale(1.05); }
+      20%{ transform:translate(-7%, 1%) scale(1.06); }
+      40%{ transform:translate(2%, 8%) scale(1.06); }
+      60%{ transform:translate(7%, 2%) scale(1.06); }
+      80%{ transform:translate(-2%, 6%) scale(1.06); }
+      100%{ transform:translate(-4%, -2%) scale(1.05); }
+    }
+
+    #impact{
+      pointer-events:none;
+      position:fixed; inset:0;
+      opacity:0;
+      transition: opacity 900ms var(--ease);
+      mix-blend-mode: screen;
+      background:
+        radial-gradient(760px 420px at 50% 50%,
+          rgba(42,168,255,.22),
+          rgba(10,76,255,.08) 38%,
+          rgba(0,0,0,0) 72%);
+    }
+    #impact.show{ opacity:1; }
+
+    #slice{
+      pointer-events:none;
+      position:fixed; inset:0;
+      opacity:0;
+      mix-blend-mode: screen;
+      background:
+        repeating-linear-gradient(
+          0deg,
+          rgba(255,255,255,.10) 0px,
+          rgba(255,255,255,.10) 1px,
+          rgba(0,0,0,0) 1px,
+          rgba(0,0,0,0) 10px
+        );
+      filter: blur(0.3px);
+      transform: translateZ(0);
+    }
+    #slice.run{
+      opacity:.85;
+      animation: slice 320ms steps(2,end) 1;
+    }
+    @keyframes slice{
+      0%{ transform: translateY(0); opacity:.0; }
+      15%{ opacity:.85; transform: translateY(-7px); }
+      35%{ transform: translateY(5px); }
+      60%{ transform: translateY(-4px); }
+      100%{ transform: translateY(0); opacity:0; }
+    }
+
+    /* Top panel */
+    #topbar{
+      position:fixed;
+      left:50%;
+      top: 26px;
+      transform: translateX(-50%);
+      display:flex;
+      gap: 18px;
+      align-items:center;
+      justify-content:center;
+      padding: 10px 14px;
+      border-radius: 999px;
+      background: linear-gradient(180deg, rgba(210,220,240,.05), rgba(0,0,0,.22));
+      border: 1px solid rgba(170,190,230,.12);
+      box-shadow: 0 0 0 1px rgba(0,0,0,.28) inset, 0 24px 90px rgba(0,0,0,.55);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      opacity:0;
+      transition: opacity 1000ms var(--ease);
+      z-index: 10;
+      user-select:none;
+    }
+    #topbar.show{ opacity:1; }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      letter-spacing:.16em;
+      text-transform: uppercase;
+    }
+    .pill{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      color: rgba(220,235,255,.62);
+      font-size: 11px;
+      line-height: 1;
+    }
+    .dot{
+      width:6px;height:6px;border-radius:999px;
+      background: rgba(220,235,255,.22);
+      transition: background 600ms var(--ease), box-shadow 600ms var(--ease), opacity 600ms var(--ease);
+      opacity:.55;
+    }
+    .pill.active{
+      color: rgba(235,248,255,.92);
+      text-shadow: 0 0 24px rgba(42,168,255,.10);
+    }
+    .pill.active .dot{
+      background: rgba(42,168,255,.92);
+      box-shadow: 0 0 14px rgba(42,168,255,.25), 0 0 34px rgba(10,76,255,.12);
+      opacity: 1;
+    }
+    .sep{
+      width:1px; height:14px;
+      background: linear-gradient(180deg, rgba(255,255,255,0), rgba(170,190,230,.22), rgba(255,255,255,0));
+      opacity:.65;
+    }
+
+    /* Tooltip */
+    #tip{
+      position:fixed;
+      left:0; top:0;
+      transform: translate(-50%,-140%);
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: linear-gradient(180deg, rgba(210,220,240,.05), rgba(0,0,0,.28));
+      border: 1px solid rgba(170,190,230,.14);
+      box-shadow: 0 0 0 1px rgba(0,0,0,.28) inset, 0 30px 120px rgba(0,0,0,.62);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      color: rgba(240,245,255,.90);
+      font-size: 11px;
+      letter-spacing:.18em;
+      text-transform: uppercase;
+      opacity:0;
+      transition: opacity 240ms var(--ease);
+      pointer-events:none;
+      z-index: 12;
+      white-space:nowrap;
+    }
+    #tip.show{ opacity:1; }
+
+    /* LOADER like screenshot */
+    #ui{
+      position:fixed; inset:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding: clamp(18px, 3vw, 54px);
+      z-index: 9;
+      pointer-events:none;
+    }
+
+    #loader{
+      opacity:1;
+      transition: opacity 900ms var(--ease), transform 900ms var(--ease);
+      filter: drop-shadow(0 18px 70px rgba(0,0,0,.65));
+      width:min(1120px, 92vw);
+    }
+
+    .loaderBar{
+      position:relative;
+      width:100%;
+      padding: 18px 22px 18px 64px;
+      border-radius: 999px;
+      background: linear-gradient(180deg, rgba(210,220,240,.05), rgba(0,0,0,.26));
+      border: 1px solid rgba(170,190,230,.14);
+      box-shadow:
+        0 0 0 1px rgba(0,0,0,.28) inset,
+        0 40px 120px rgba(0,0,0,.62);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      overflow:hidden;
+    }
+
+    .loaderDot{
+      position:absolute;
+      left: 22px; top:50%;
+      width: 28px; height: 28px;
+      transform: translateY(-50%);
+      border-radius: 999px;
+      border: 1px solid rgba(170,190,230,.20);
+      background:
+        radial-gradient(circle at 35% 35%,
+          rgba(255,255,255,.20),
+          rgba(42,168,255,.06) 55%,
+          rgba(0,0,0,.25) 100%);
+      box-shadow:
+        0 0 0 1px rgba(0,0,0,.35) inset,
+        0 0 18px rgba(42,168,255,.08);
+      opacity:.9;
+    }
+    .loaderDot::after{
+      content:"";
+      position:absolute;
+      left:50%; top:50%;
+      width:6px; height:6px;
+      transform: translate(-50%,-50%);
+      border-radius:999px;
+      background: rgba(240,245,255,.72);
+      opacity:.85;
+    }
+
+    #terminal{
+      margin:0;
+      white-space:pre-wrap;
+      color: rgba(220,235,255,.62);
+      font-size: clamp(11px, 1.05vw, 13px);
+      line-height: 1.65;
+      letter-spacing:.22em;
+      text-transform: uppercase;
+    }
+
+    #cursor{
+      display:inline-block;
+      width: 12px;
+      margin-left: 2px;
+      border-bottom: 2px solid rgba(245,248,255,.55);
+      transform: translateY(-1px);
+      animation: blink 900ms steps(1,end) infinite;
+      opacity:.65;
+    }
+    @keyframes blink{ 50%{ opacity:0; } }
+
+    #revealTitle{
+      position:absolute;
+      inset:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      opacity:0;
+      transform: translateY(14px) scale(.992);
+      transition: opacity 1100ms var(--ease), transform 1100ms var(--ease);
+      filter: drop-shadow(0 22px 90px rgba(0,0,0,.72));
+      pointer-events:none;
+    }
+    .titleCard{
+      display:inline-block;
+      padding: 18px 20px;
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(210,220,240,.06), rgba(0,0,0,.16));
+      border: 1px solid rgba(170,190,230,.14);
+      box-shadow: 0 0 0 1px rgba(0,0,0,.28) inset, 0 40px 120px rgba(0,0,0,.62);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+    }
+    .title{
+      margin:0;
+      font-weight: 650;
+      text-transform: uppercase;
+      letter-spacing: .14em;
+      font-size: clamp(20px, 3.2vw, 44px);
+      color: rgba(255,255,255,.985);
+    }
+    .title .accent{
+      color: rgba(255,255,255,.99);
+      text-shadow: 0 0 18px rgba(255,255,255,.05), 0 0 42px rgba(42,168,255,.11);
+    }
+    .subtitle{
+      margin: 10px 0 0;
+      font-size: clamp(11px, 1.2vw, 13px);
+      letter-spacing: .34em;
+      color: rgba(210,225,255,.55);
+      text-transform: uppercase;
+    }
+    .liquid{ display:inline-block; filter: url(#liquidWipe); will-change: filter; }
+    .fadeOut{
+      opacity:0 !important;
+      transform: translateY(10px) scale(.992) !important;
+      transition: opacity 1200ms var(--ease), transform 1200ms var(--ease) !important;
+    }
+
+    /* Legend bottom-right */
+    #legend{
+      position:fixed;
+      right: 22px;
+      bottom: 20px;
+      z-index: 10;
+      opacity: 0;
+      transition: opacity 900ms var(--ease), transform 900ms var(--ease);
+      transform: translateY(10px);
+      pointer-events:none;
+      user-select:none;
+    }
+    #legend.show{ opacity:1; transform: translateY(0); }
+
+    .legendCard{
+      display:flex;
+      align-items:center;
+      gap: 14px;
+      padding: 10px 12px;
+      border-radius: 14px;
+      background: linear-gradient(180deg, rgba(210,220,240,.045), rgba(0,0,0,.22));
+      border: 1px solid rgba(170,190,230,.12);
+      box-shadow: 0 0 0 1px rgba(0,0,0,.28) inset, 0 24px 90px rgba(0,0,0,.52);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      font-size: 10px;
+      letter-spacing:.22em;
+      text-transform: uppercase;
+      color: rgba(220,235,255,.65);
+    }
+    .lgItem{ display:flex; align-items:center; gap:10px; }
+    .sw{
+      width: 18px; height: 10px;
+      position:relative;
+    }
+    .sw.pos::before{
+      content:"";
+      position:absolute; inset:0;
+      border: 1px solid rgba(210,225,245,.35);
+      border-radius: 2px;
+    }
+    .sw.conf::before{
+      content:"";
+      position:absolute; inset:0;
+      border: 1px solid rgba(255,255,255,.45);
+      border-radius: 2px;
+    }
+    .sw.conf::after{
+      content:"";
+      position:absolute; left:2px; right:2px; top:2px; bottom:2px;
+      border: 1px solid rgba(255,60,72,.65);
+      border-radius: 2px;
+      opacity:.95;
+    }
+    .sw.trk::before{
+      content:"";
+      position:absolute; left:0; right:0; top:50%;
+      transform: translateY(-50%);
+      height:1px;
+      background: rgba(255,60,72,.55);
+      box-shadow: 0 0 10px rgba(255,60,72,.18);
+    }
+
+    /* Final */
+    #final{
+      position:fixed;
+      left:50%; top:50%;
+      transform: translate(-50%,-50%);
+      text-align:center;
+      opacity:0;
+      transition: opacity 1200ms var(--ease);
+      filter: drop-shadow(0 30px 120px rgba(0,0,0,.78));
+      z-index: 11;
+      pointer-events:none;
+    }
+    #final.show{ opacity:1; }
+
+    .coreWrap{
+      position:relative;
+      display:inline-block;
+      padding: 14px 16px 10px;
+      border-radius: 22px;
+      background: linear-gradient(180deg, rgba(210,220,240,.045), rgba(0,0,0,.14));
+      border: 1px solid rgba(110,150,220,.10);
+      box-shadow: 0 0 0 1px rgba(0,0,0,.28) inset, 0 40px 130px rgba(0,0,0,.55);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      overflow:hidden;
+    }
+    .coreHalo{
+      pointer-events:none;
+      position:absolute;
+      left:50%; top:46%;
+      width: 560px; height: 560px;
+      transform: translate(-50%,-50%);
+      background:
+        radial-gradient(closest-side,
+          rgba(42,168,255,.20),
+          rgba(10,76,255,.06) 42%,
+          rgba(0,0,0,0) 72%);
+      filter: blur(10px);
+      opacity:.82;
+      mix-blend-mode: screen;
+      animation: halo 3.6s var(--ease) infinite;
+    }
+    @keyframes halo{
+      0%,100%{ transform:translate(-50%,-50%) scale(1.0); opacity:.70; }
+      50%{ transform:translate(-50%,-50%) scale(1.05); opacity:.92; }
+    }
+    .infinity{
+      width: min(420px, 72vw);
+      height:auto;
+      display:block;
+      transform: translateZ(0);
+      animation: breathe 3.2s var(--ease) infinite;
+    }
+    @keyframes breathe{
+      0%,100%{ transform: translateZ(0) scale(1); }
+      50%{ transform: translateZ(0) scale(1.02); }
+    }
+    .strokeDraw{
+      stroke-dasharray: 1400;
+      stroke-dashoffset: 1400;
+      animation: draw 1.35s var(--ease) forwards;
+    }
+    @keyframes draw{ to { stroke-dashoffset: 0; } }
+
+    .runes{
+      position:absolute; inset:0;
+      pointer-events:none;
+      opacity:.85;
+      mix-blend-mode: screen;
+    }
+    .runeText{
+      fill: rgba(210,235,255,.42);
+      font-size: 10px;
+      letter-spacing: .22em;
+      text-transform: uppercase;
+    }
+    .runeLine{ stroke: rgba(42,168,255,.16); stroke-width: 1; opacity:.85; }
+
+    #code3301{
+      margin-top: 16px;
+      position:relative;
+      display:inline-block;
+      font-size: clamp(18px, 3vw, 36px);
+      letter-spacing: .55em;
+      text-indent: .55em;
+      color: rgba(235,248,255,.96);
+      text-shadow: 0 0 30px rgba(42,168,255,.16);
+      opacity:0;
+      transform: translateY(12px);
+      transition: opacity 900ms var(--ease), transform 900ms var(--ease);
+    }
+    #code3301.show{ opacity:1; transform: translateY(0); }
+
+    #code3301::before,
+    #code3301::after{
+      content: attr(data-text);
+      position:absolute;
+      left:0; top:0;
+      width:100%;
+      opacity:0;
+      pointer-events:none;
+    }
+    #code3301::before{ color: rgba(42,168,255,.55); }
+    #code3301::after{ color: rgba(10,76,255,.45); }
+
+    #code3301.glitch::before{
+      opacity:1;
+      clip-path: inset(0 0 58% 0);
+      transform: translateX(1px);
+      animation: glitchA 360ms steps(2,end) 1;
+    }
+    #code3301.glitch::after{
+      opacity:1;
+      clip-path: inset(46% 0 0 0);
+      transform: translateX(-1px);
+      animation: glitchB 360ms steps(2,end) 1;
+    }
+    @keyframes glitchA{
+      0%{ clip-path: inset(0 0 62% 0); }
+      33%{ clip-path: inset(12% 0 46% 0); }
+      66%{ clip-path: inset(4% 0 70% 0); }
+      100%{ clip-path: inset(0 0 62% 0); }
+    }
+    @keyframes glitchB{
+      0%{ clip-path: inset(52% 0 0 0); }
+      33%{ clip-path: inset(42% 0 0 0); }
+      66%{ clip-path: inset(60% 0 0 0); }
+      100%{ clip-path: inset(52% 0 0 0); }
+    }
+    .scan3301{
+      position:absolute;
+      left:-15%;
+      top:50%;
+      width:130%;
+      height:18px;
+      transform: translateY(-50%) translateX(-120%) rotate(-6deg);
+      background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,.28), rgba(255,255,255,0));
+      filter: blur(10px);
+      opacity:0;
+      mix-blend-mode: screen;
+      pointer-events:none;
+    }
+    #code3301.scan .scan3301{
+      opacity:.9;
+      animation: scanPass 620ms var(--ease) 1;
+    }
+    @keyframes scanPass{
+      to { transform: translateY(-50%) translateX(120%) rotate(-6deg); opacity:0; }
+    }
+
+    .cursor{
+      pointer-events:none;
+      position:fixed;
+      left:0; top:0;
+      width: 10px; height: 10px;
+      border-radius: 999px;
+      background: rgba(240,245,255,.85);
+      mix-blend-mode: difference;
+      transform: translate(-50%,-50%);
+      opacity:.85;
+      z-index: 20;
+    }
+    .cursorRing{
+      pointer-events:none;
+      position:fixed;
+      left:0; top:0;
+      width: 44px; height: 44px;
+      border-radius: 999px;
+      border: 1px solid rgba(240,245,255,.35);
+      mix-blend-mode: difference;
+      transform: translate(-50%,-50%);
+      opacity:.65;
+      z-index: 20;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="gl"></canvas>
+  <canvas id="map"></canvas>
+
+  <div id="impact"></div>
+  <div id="slice"></div>
+  <div class="grain"></div>
+  <div class="vignette"></div>
+
+  <div id="topbar" class="mono">
+    <div class="pill" id="p1"><span class="dot"></span><span>Обнаружение</span></div>
+    <div class="sep"></div>
+    <div class="pill" id="p2"><span class="dot"></span><span>Аналитика</span></div>
+    <div class="sep"></div>
+    <div class="pill" id="p3"><span class="dot"></span><span>Расследование</span></div>
+  </div>
+
+  <div id="legend" class="mono">
+    <div class="legendCard">
+      <div class="lgItem"><span class="sw pos"></span><span>POSSIBLE</span></div>
+      <div class="lgItem"><span class="sw conf"></span><span>CONFIRMED</span></div>
+      <div class="lgItem"><span class="sw trk"></span><span>TRACK</span></div>
+    </div>
+  </div>
+
+  <div id="tip" class="mono">TARGET 07 // POSSIBLE // HIGH</div>
+
+  <svg width="0" height="0" style="position:absolute">
+    <filter id="liquidWipe">
+      <feTurbulence id="turb" type="fractalNoise" baseFrequency="0.008 0.02" numOctaves="2" seed="3" result="noise"/>
+      <feDisplacementMap id="disp" in="SourceGraphic" in2="noise" scale="0" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+    <filter id="glowStrong" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feColorMatrix in="b" type="matrix"
+        values="1 0 0 0 0
+                0 1 0 0 0
+                0 0 1 0 0
+                0 0 0 0.85 0" result="g"/>
+      <feMerge>
+        <feMergeNode in="g"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </svg>
+
+  <div id="ui">
+    <div id="loader" class="mono">
+      <div class="loaderBar">
+        <div class="loaderDot" aria-hidden="true"></div>
+        <span id="terminal"></span><span id="cursor"></span>
+      </div>
+    </div>
+
+    <div id="revealTitle">
+      <div class="titleCard">
+        <div class="liquid">
+          <h1 class="title mono">ИИ нового поколения: <span class="accent">ПАЛАЧ</span></h1>
+        </div>
+        <p class="subtitle mono">WORLD ANALYSIS // THREAT MAP</p>
+      </div>
+    </div>
+  </div>
+
+  <div id="final">
+    <div class="coreWrap">
+      <div class="coreHalo"></div>
+
+      <svg class="runes" viewBox="0 0 900 420" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <line class="runeLine" x1="70" y1="70" x2="160" y2="70"/>
+        <line class="runeLine" x1="70" y1="70" x2="70" y2="140"/>
+        <line class="runeLine" x1="830" y1="70" x2="740" y2="70"/>
+        <line class="runeLine" x1="830" y1="70" x2="830" y2="140"/>
+
+        <line class="runeLine" x1="70" y1="350" x2="160" y2="350"/>
+        <line class="runeLine" x1="70" y1="350" x2="70" y2="280"/>
+        <line class="runeLine" x1="830" y1="350" x2="740" y2="350"/>
+        <line class="runeLine" x1="830" y1="350" x2="830" y2="280"/>
+
+        <text class="runeText" x="90" y="58">COORD // 47.219N</text>
+        <text class="runeText" x="640" y="58">LON // 008.541E</text>
+        <text class="runeText" x="90" y="392">DEPTH // 19.4KM</text>
+        <text class="runeText" x="642" y="392">SIG // CLEAN</text>
+      </svg>
+
+      <svg class="infinity" viewBox="0 0 900 320" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="infinity">
+        <defs>
+          <linearGradient id="strokeGrad" x1="120" y1="160" x2="780" y2="160" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="rgba(10,76,255,.55)"/>
+            <stop offset=".35" stop-color="rgba(42,168,255,.95)"/>
+            <stop offset=".65" stop-color="rgba(255,255,255,.78)"/>
+            <stop offset="1" stop-color="rgba(42,168,255,.75)"/>
+          </linearGradient>
+        </defs>
+
+        <path d="M265 160c62-92 152-92 225 0s162 92 225 0"
+              stroke="rgba(10,76,255,.35)" stroke-width="26" stroke-linecap="round" filter="url(#glowStrong)" opacity=".85"/>
+        <path d="M265 160c62 92 152 92 225 0s162-92 225 0"
+              stroke="rgba(42,168,255,.28)" stroke-width="26" stroke-linecap="round" filter="url(#glowStrong)" opacity=".75"/>
+
+        <path class="strokeDraw" d="M265 160c62-92 152-92 225 0s162 92 225 0"
+              stroke="url(#strokeGrad)" stroke-width="20" stroke-linecap="round" filter="url(#glowStrong)"/>
+        <path class="strokeDraw" style="animation-delay:120ms"
+              d="M265 160c62 92 152 92 225 0s162-92 225 0"
+              stroke="url(#strokeGrad)" stroke-width="20" stroke-linecap="round" filter="url(#glowStrong)"/>
+      </svg>
+
+      <div id="code3301" class="mono" data-text="3301">
+        <span class="scan3301" aria-hidden="true"></span>
+        <span id="cipher">3301</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="cursor" id="c"></div>
+  <div class="cursorRing" id="r"></div>
+
+  <script>
+    /* ============================
+       WebGL ocean background (same as before)
+    ============================ */
+    const glCanvas = document.getElementById('gl');
+    const gl = glCanvas.getContext('webgl', { antialias:false, alpha:false });
+
+    function glResize(){
+      const DPR = Math.min(2, window.devicePixelRatio || 1);
+      const W = Math.floor(innerWidth);
+      const H = Math.floor(innerHeight);
+      glCanvas.width = Math.floor(W*DPR);
+      glCanvas.height = Math.floor(H*DPR);
+      glCanvas.style.width = W+'px';
+      glCanvas.style.height = H+'px';
+      gl.viewport(0,0,glCanvas.width,glCanvas.height);
+    }
+    addEventListener('resize', glResize, {passive:true});
+    glResize();
+
+    const VERT = `
+      attribute vec2 a_pos;
+      varying vec2 v_uv;
+      void main(){
+        v_uv = a_pos * 0.5 + 0.5;
+        gl_Position = vec4(a_pos, 0.0, 1.0);
+      }
+    `;
+    const FRAG = `
+      precision highp float;
+      varying vec2 v_uv;
+      uniform vec2 u_res;
+      uniform float u_time;
+
+      float hash(vec2 p){
+        p = fract(p*vec2(123.34, 345.45));
+        p += dot(p, p+34.345);
+        return fract(p.x*p.y);
+      }
+      float noise(vec2 p){
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        float a = hash(i);
+        float b = hash(i + vec2(1.0,0.0));
+        float c = hash(i + vec2(0.0,1.0));
+        float d = hash(i + vec2(1.0,1.0));
+        vec2 u = f*f*(3.0-2.0*f);
+        return mix(a,b,u.x) + (c-a)*u.y*(1.0-u.x) + (d-b)*u.x*u.y;
+      }
+      float fbm(vec2 p){
+        float v=0.0;
+        float a=0.55;
+        mat2 m = mat2(1.6,1.2,-1.2,1.6);
+        for(int i=0;i<5;i++){
+          v += a*noise(p);
+          p = m*p;
+          a *= 0.55;
+        }
+        return v;
+      }
+      vec3 grade(vec3 c){
+        c = pow(c, vec3(0.95));
+        c.r *= 0.92;
+        c.g *= 0.99;
+        c.b *= 1.10;
+        return c;
+      }
+      float vignette(vec2 uv){
+        vec2 p = uv - 0.5;
+        float r = dot(p,p);
+        return smoothstep(0.74, 0.20, r);
+      }
+      vec3 ocean(vec2 uv, float t){
+        vec2 p = uv;
+        p.x *= u_res.x / u_res.y;
+
+        float speed = 0.14;
+        vec2 q = p*1.18;
+        q += vec2(0.0, -t*speed);
+
+        float n1 = fbm(q*1.05 + vec2(0.0, t*0.12));
+        float n2 = fbm(q*2.10 - vec2(t*0.10, 0.0));
+        vec2 warp = vec2(n1, n2) - 0.5;
+
+        vec2 r = q + warp*0.70;
+        float f = fbm(r*2.0);
+        float f2 = fbm(r*3.5 + vec2(0.0, t*0.08));
+
+        float rid = 1.0 - abs(2.0*f - 1.0);
+        rid = pow(rid, 2.55);
+
+        vec3 base = vec3(0.02, 0.03, 0.06);
+        vec3 deep = vec3(0.02, 0.05, 0.12);
+        vec3 neon = vec3(0.10, 0.45, 0.95);
+
+        float depth = smoothstep(0.12, 0.92, f2);
+        vec3 col = mix(base, deep, depth);
+
+        float hl = smoothstep(0.62, 1.0, rid) * 0.90;
+        col += neon * hl * 0.34;
+
+        float fog = smoothstep(0.0, 1.0, uv.y);
+        col = mix(col, vec3(0.01,0.02,0.04), fog*0.38);
+
+        return col;
+      }
+
+      void main(){
+        vec2 uv = v_uv;
+        float t = u_time;
+
+        float ca = 0.0038;
+        vec2 dir = (uv - 0.5);
+        float d = length(dir);
+        vec2 off = dir * (ca * (0.35 + d*1.2));
+
+        vec3 cR = ocean(uv + off, t);
+        vec3 cG = ocean(uv, t);
+        vec3 cB = ocean(uv - off, t);
+        vec3 col = vec3(cR.r, cG.g, cB.b);
+
+        col *= vignette(uv);
+        col = grade(col);
+        gl_FragColor = vec4(col, 1.0);
+      }
+    `;
+
+    function compile(type, src){
+      const s = gl.createShader(type);
+      gl.shaderSource(s, src);
+      gl.compileShader(s);
+      if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)){
+        console.error(gl.getShaderInfoLog(s));
+        throw new Error('Shader compile failed');
+      }
+      return s;
+    }
+    const prog = gl.createProgram();
+    gl.attachShader(prog, compile(gl.VERTEX_SHADER, VERT));
+    gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FRAG));
+    gl.linkProgram(prog);
+    gl.useProgram(prog);
+
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,  3,-1,  -1, 3]), gl.STATIC_DRAW);
+
+    const aPos = gl.getAttribLocation(prog, 'a_pos');
+    gl.enableVertexAttribArray(aPos);
+    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+    const uRes = gl.getUniformLocation(prog, 'u_res');
+    const uTime = gl.getUniformLocation(prog, 'u_time');
+
+    let glT0 = performance.now();
+    function glFrame(now){
+      const t = (now - glT0) * 0.001;
+      gl.uniform2f(uRes, glCanvas.width, glCanvas.height);
+      gl.uniform1f(uTime, t);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      requestAnimationFrame(glFrame);
+    }
+    requestAnimationFrame(glFrame);
+
+    /* ============================
+       Map layer: reticles + micro digits + legend
+    ============================ */
+    const map = document.getElementById('map');
+    const ctx = map.getContext('2d');
+    let W=0,H=0,DPR=1;
+
+    function mapResize(){
+      DPR = Math.min(2, window.devicePixelRatio || 1);
+      W = Math.floor(innerWidth);
+      H = Math.floor(innerHeight);
+      map.width = Math.floor(W*DPR);
+      map.height = Math.floor(H*DPR);
+      map.style.width = W+'px';
+      map.style.height = H+'px';
+      ctx.setTransform(DPR,0,0,DPR,0,0);
+    }
+    addEventListener('resize', mapResize, {passive:true});
+    mapResize();
+
+    function worldPlate(){
+      const w = Math.min(W*0.86, 1120);
+      const h = w * 0.52;
+      return { w, h, x:(W-w)/2, y:(H-h)/2 + H*0.06 };
+    }
+    function proj(lon, lat, plate){
+      const x = plate.x + ((lon + 180) / 360) * plate.w;
+      const y = plate.y + ((90 - lat) / 180) * plate.h;
+      return {x,y};
+    }
+
+    const continents = [
+      { lon:-110, lat: 45, rx:55, ry:28, rot:-0.25 },
+      { lon:-85,  lat: 30, rx:30, ry:20, rot: 0.10 },
+      { lon:-140, lat: 55, rx:25, ry:16, rot:-0.35 },
+      { lon:-60,  lat:-15, rx:25, ry:35, rot: 0.25 },
+      { lon: 10,  lat: 50, rx:20, ry:14, rot:-0.10 },
+      { lon: 30,  lat: 55, rx:18, ry:12, rot: 0.15 },
+      { lon: 20,  lat:  5, rx:28, ry:38, rot:-0.10 },
+      { lon: 85,  lat: 45, rx:65, ry:28, rot: 0.10 },
+      { lon: 110, lat: 25, rx:35, ry:18, rot:-0.10 },
+      { lon: 135, lat:-25, rx:22, ry:14, rot: 0.05 },
+      { lon:-40,  lat: 72, rx:18, ry:10, rot:-0.20 },
+    ];
+
+    const targets = [];
+    const pings = [];
+    const tracks = [];
+
+    function seededRand(seed){
+      let s = seed >>> 0;
+      return ()=>{
+        s = (s * 1664525 + 1013904223) >>> 0;
+        return (s & 0xfffffff) / 0xfffffff;
+      };
+    }
+    const R = seededRand(1337);
+
+    function spawnTarget(cluster=false){
+      const lat = (R()*120 - 60) + (cluster ? (R()*18 - 9) : 0);
+      const lon = (R()*360 - 180) + (cluster ? (R()*22 - 11) : 0);
+      const threat = 0.4 + R()*0.6;
+
+      const confirmDelay = 0.55 + R()*1.25; // possible -> confirmed
+      targets.push({
+        id: targets.length + 1,
+        lon, lat,
+        threat,
+        phase: R()*Math.PI*2,
+        appear: 0,
+        life: 0,
+        ttl: 10 + R()*16,
+        state: "possible",
+        confirmAt: confirmDelay
+      });
+    }
+
+    function spawnPingAt(pt, confirmed=true){
+      pings.push({
+        x: pt.x, y: pt.y,
+        r: 0,
+        a: confirmed ? 0.55 : 0.30,
+        speed: 110 + R()*140,
+        life: 0,
+        ttl: 1.1 + R()*0.6,
+        confirmed
+      });
+    }
+
+    function spawnTrackFrom(pt, strength=1){
+      const segs = 2 + Math.floor(R()*3);
+      const pts = [{x: pt.x, y: pt.y}];
+
+      let x = pt.x, y = pt.y;
+      for(let i=0;i<segs;i++){
+        const ang = (R()*Math.PI*2);
+        const len = (18 + R()*46) * (0.7 + strength*0.5);
+        x += Math.cos(ang) * len;
+        y += Math.sin(ang) * (len*0.65);
+        pts.push({x,y});
+      }
+
+      tracks.push({ pts, life: 0, ttl: 1.15 + R()*1.1, strength });
+    }
+
+    /* ===== Reticle drawing ===== */
+    function drawReticle(x, y, size, col, alpha, whiteOutline=false, locked=false){
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+
+      // Outer thin white outline (for confirmed locked markers)
+      if(whiteOutline){
+        ctx.strokeStyle = "rgba(255,255,255,0.55)";
+        ctx.lineWidth = 1;
+        // corner brackets
+        const b = size * 0.82;
+        const l = size * 0.34;
+        ctx.beginPath();
+        ctx.moveTo(x-b, y-b+l); ctx.lineTo(x-b, y-b); ctx.lineTo(x-b+l, y-b);
+        ctx.moveTo(x+b-l, y-b); ctx.lineTo(x+b, y-b); ctx.lineTo(x+b, y-b+l);
+        ctx.moveTo(x-b, y+b-l); ctx.lineTo(x-b, y+b); ctx.lineTo(x-b+l, y+b);
+        ctx.moveTo(x+b-l, y+b); ctx.lineTo(x+b, y+b); ctx.lineTo(x+b, y+b-l);
+        ctx.stroke();
+      }
+
+      // main reticle
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 1;
+
+      // short cross lines (no “jitter”)
+      const cl = size * 0.52;
+      const gap = size * 0.22;
+      ctx.beginPath();
+      // horizontal
+      ctx.moveTo(x-gap-cl, y); ctx.lineTo(x-gap, y);
+      ctx.moveTo(x+gap, y); ctx.lineTo(x+gap+cl, y);
+      // vertical
+      ctx.moveTo(x, y-gap-cl); ctx.lineTo(x, y-gap);
+      ctx.moveTo(x, y+gap); ctx.lineTo(x, y+gap+cl);
+      ctx.stroke();
+
+      // arc segments (premium)
+      ctx.beginPath();
+      const r = size * 0.55;
+      ctx.arc(x, y, r, -0.2, 0.55);
+      ctx.arc(x, y, r, 1.35, 2.05);
+      ctx.arc(x, y, r, 2.85, 3.55);
+      ctx.arc(x, y, r, 4.35, 5.05);
+      ctx.stroke();
+
+      // locked “clamp” / small lock notch
+      if(locked){
+        ctx.strokeStyle = "rgba(255,60,72,0.85)";
+        ctx.lineWidth = 1;
+
+        const lw = size * 0.38;
+        const lh = size * 0.18;
+        // top clamp
+        ctx.beginPath();
+        ctx.moveTo(x - lw, y - size*0.88);
+        ctx.lineTo(x - lw, y - size*0.88 + lh);
+        ctx.lineTo(x + lw, y - size*0.88 + lh);
+        ctx.lineTo(x + lw, y - size*0.88);
+        ctx.stroke();
+
+        // tiny inner “lock pin”
+        ctx.strokeStyle = "rgba(255,255,255,0.55)";
+        ctx.beginPath();
+        ctx.moveTo(x, y - size*0.88 + lh);
+        ctx.lineTo(x, y - size*0.88 + lh + size*0.16);
+        ctx.stroke();
+      }
+
+      // center dot
+      ctx.fillStyle = "rgba(255,255,255,0.14)";
+      ctx.beginPath(); ctx.arc(x, y, 1.0, 0, Math.PI*2); ctx.fill();
+
+      ctx.restore();
+    }
+
+    function drawMicroLabel(x, y, id, state, alpha){
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.font = "10px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace";
+      ctx.textBaseline = "middle";
+      ctx.textAlign = "left";
+      ctx.fillStyle = state === "confirmed"
+        ? "rgba(255,255,255,0.55)"
+        : "rgba(210,225,245,0.35)";
+      const tag = String(id).padStart(2,"0");
+      ctx.fillText(tag, x + 12, y - 10);
+
+      // tiny underline tick
+      ctx.strokeStyle = state === "confirmed"
+        ? "rgba(255,60,72,0.45)"
+        : "rgba(170,190,230,0.22)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x + 12, y - 2);
+      ctx.lineTo(x + 12 + 16, y - 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    /* Interaction */
+    const tip = document.getElementById('tip');
+    let hover = null;
+    let mouseX = W/2, mouseY = H/2;
+    addEventListener('mousemove', (e)=>{ mouseX=e.clientX; mouseY=e.clientY; }, {passive:true});
+
+    map.addEventListener('mousemove', (e)=>{
+      const plate = worldPlate();
+      hover = null;
+      let best = null, bestD = 1e9;
+      for(const t of targets){
+        if(t.appear < 0.25) continue;
+        const p = proj(t.lon, t.lat, plate);
+        const dx = p.x - e.clientX, dy = p.y - e.clientY;
+        const d = dx*dx + dy*dy;
+        if(d < bestD){ bestD = d; best = {t, p}; }
+      }
+      if(best && bestD < 34*34){
+        hover = best;
+        const lvl = best.t.threat > 0.75 ? "CRITICAL" : best.t.threat > 0.55 ? "HIGH" : "ELEVATED";
+        const st = best.t.state === "confirmed" ? "CONFIRMED" : "POSSIBLE";
+        tip.textContent = `TARGET ${String(best.t.id).padStart(2,'0')} // ${st} // ${lvl}`;
+        tip.style.left = e.clientX + 'px';
+        tip.style.top = e.clientY + 'px';
+        tip.classList.add('show');
+      } else {
+        tip.classList.remove('show');
+      }
+    }, {passive:true});
+
+    map.addEventListener('click', ()=>{
+      if(hover){
+        const isConf = hover.t.state === "confirmed";
+        spawnPingAt(hover.p, isConf);
+        if(isConf) spawnTrackFrom(hover.p, hover.t.threat);
+      }
+    });
+
+    /* UI state */
+    const topbar = document.getElementById('topbar');
+    const legend = document.getElementById('legend');
+    const p1 = document.getElementById('p1');
+    const p2 = document.getElementById('p2');
+    const p3 = document.getElementById('p3');
+    let mapVisible = 0;
+    let scanPos = -0.2;
+    let scanOn = false;
+
+    function clamp01(x){ return x<0?0:x>1?1:x; }
+    function smoothstep(a,b,x){
+      const t = clamp01((x-a)/(b-a));
+      return t*t*(3-2*t);
+    }
+
+    function drawGraticule(plate, a){
+      ctx.save();
+      ctx.globalAlpha = a;
+      ctx.strokeStyle = 'rgba(120,170,255,0.10)';
+      ctx.lineWidth = 1;
+
+      for(let lon=-150; lon<=150; lon+=30){
+        ctx.beginPath();
+        for(let lat=-80; lat<=80; lat+=8){
+          const p = proj(lon, lat, plate);
+          if(lat===-80) ctx.moveTo(p.x,p.y);
+          else ctx.lineTo(p.x,p.y);
+        }
+        ctx.stroke();
+      }
+      for(let lat=-60; lat<=60; lat+=20){
+        ctx.beginPath();
+        for(let lon=-180; lon<=180; lon+=10){
+          const p = proj(lon, lat, plate);
+          if(lon===-180) ctx.moveTo(p.x,p.y);
+          else ctx.lineTo(p.x,p.y);
+        }
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function drawContinents(plate, a){
+      ctx.save();
+      ctx.globalAlpha = a;
+      ctx.fillStyle = 'rgba(42,168,255,0.10)';
+      ctx.lineWidth = 1;
+
+      for(const c of continents){
+        const center = proj(c.lon, c.lat, plate);
+        const rx = (c.rx/180) * plate.h;
+        const ry = (c.ry/180) * plate.h;
+        ctx.save();
+        ctx.translate(center.x, center.y);
+        ctx.rotate(c.rot);
+        ctx.beginPath();
+        ctx.ellipse(0,0, rx, ry, 0, 0, Math.PI*2);
+        ctx.fill();
+        ctx.restore();
+      }
+      ctx.restore();
+    }
+
+    function drawScanStripe(plate){
+      if(!scanOn) return null;
+      scanPos += (1/60) * 0.18;
+      if(scanPos > 1.15) scanPos = -0.15;
+      const y = plate.y + scanPos * plate.h;
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'screen';
+      const g = ctx.createLinearGradient(0, y-90, 0, y+90);
+      g.addColorStop(0, 'rgba(255,255,255,0)');
+      g.addColorStop(0.45, 'rgba(255,255,255,0.05)');
+      g.addColorStop(0.50, 'rgba(255,255,255,0.14)');
+      g.addColorStop(0.55, 'rgba(255,255,255,0.05)');
+      g.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(plate.x, y-140, plate.w, 280);
+      ctx.restore();
+      return y;
+    }
+
+    function drawHeatmap(plate, now, scanY){
+      ctx.save();
+      ctx.globalCompositeOperation = 'screen';
+      const px = ((mouseX - W/2)/W) * 10;
+      const py = ((mouseY - H/2)/H) * 8;
+      ctx.translate(px, py);
+
+      for(const t of targets){
+        if(t.appear < 0.22) continue;
+        const p = proj(t.lon, t.lat, plate);
+
+        let boost = 0;
+        if(scanY != null){
+          const d = Math.abs(p.y - scanY);
+          boost = smoothstep(160, 0, d) * 0.75;
+        }
+
+        const A = t.appear * mapVisible;
+        const isConf = t.state === "confirmed";
+        const strength = (isConf ? 1.0 : 0.32) * (0.45 + t.threat*0.55);
+        const pulse = 0.55 + 0.45*Math.sin(now*0.001*1.2 + t.phase);
+        const R0 = 34 + 46*strength + 18*pulse;
+
+        const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, R0);
+        g.addColorStop(0, `rgba(255,255,255,${0.02*A*strength})`);
+        g.addColorStop(0.25, `rgba(255,60,72,${(0.055 + boost*0.03)*A*strength})`);
+        g.addColorStop(0.55, `rgba(255,120,130,${(0.028 + boost*0.02)*A*strength})`);
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, R0, 0, Math.PI*2);
+        ctx.fill();
+      }
+
+      ctx.restore();
+    }
+
+    function drawTracks(now){
+      ctx.save();
+      ctx.globalCompositeOperation = 'screen';
+
+      for(let i=tracks.length-1;i>=0;i--){
+        const tr = tracks[i];
+        tr.life += 1/60;
+        const k = 1 - (tr.life / tr.ttl);
+        if(k <= 0){ tracks.splice(i,1); continue; }
+
+        const a = (0.16 + 0.24*tr.strength) * k * mapVisible;
+
+        ctx.strokeStyle = `rgba(255,120,130,${a*0.55})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(tr.pts[0].x, tr.pts[0].y);
+        for(let j=1;j<tr.pts.length;j++) ctx.lineTo(tr.pts[j].x, tr.pts[j].y);
+        ctx.stroke();
+
+        ctx.strokeStyle = `rgba(255,60,72,${a})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(tr.pts[0].x, tr.pts[0].y);
+        for(let j=1;j<tr.pts.length;j++) ctx.lineTo(tr.pts[j].x, tr.pts[j].y);
+        ctx.stroke();
+
+        const p = (tr.life / tr.ttl);
+        const idx = Math.min(tr.pts.length-2, Math.floor(p*(tr.pts.length-1)));
+        const aPt = tr.pts[idx], bPt = tr.pts[idx+1];
+        const local = (p*(tr.pts.length-1)) - idx;
+        const x = aPt.x + (bPt.x - aPt.x)*local;
+        const y = aPt.y + (bPt.y - aPt.y)*local;
+
+        ctx.fillStyle = `rgba(255,255,255,${a*0.45})`;
+        ctx.beginPath(); ctx.arc(x, y, 1.3, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = `rgba(255,60,72,${a*0.80})`;
+        ctx.beginPath(); ctx.arc(x, y, 1.0, 0, Math.PI*2); ctx.fill();
+      }
+
+      ctx.restore();
+    }
+
+    function drawTargets(plate, now, scanY){
+      const px = ((mouseX - W/2)/W) * 10;
+      const py = ((mouseY - H/2)/H) * 8;
+
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.globalCompositeOperation = 'screen';
+
+      for(const t of targets){
+        t.life += 1/60;
+        t.ttl -= 1/60;
+        t.appear += (1 - t.appear) * 0.05;
+        const A = t.appear * mapVisible;
+
+        if(t.state === "possible" && t.life >= t.confirmAt){
+          t.state = "confirmed";
+          const p = proj(t.lon, t.lat, plate);
+          spawnPingAt(p, true);
+          if(Math.random() < 0.75) spawnTrackFrom(p, t.threat);
+        }
+
+        const p = proj(t.lon, t.lat, plate);
+
+        let boost = 0;
+        if(scanY != null){
+          const d = Math.abs(p.y - scanY);
+          boost = smoothstep(120, 0, d) * 0.8;
+        }
+
+        const pulse = 0.55 + 0.45*Math.sin(now*0.001*2.2 + t.phase);
+        const size = (t.state === "confirmed" ? 10.5 : 9.0) + pulse*1.2 + t.threat*2.2;
+
+        if(t.state === "confirmed"){
+          // confirmed: red + thin white outline + locked clamp
+          drawReticle(p.x, p.y, size, `rgba(255,60,72,${0.78 + boost*0.20})`, A, true, true);
+          // micro digits
+          drawMicroLabel(p.x, p.y, t.id, "confirmed", A);
+          // occasional analysis spawn
+          if(mapVisible > 0.7 && Math.random() < (0.0013 + t.threat*0.001)){
+            spawnTrackFrom(p, t.threat);
+          }
+          if(mapVisible > 0.7 && Math.random() < (0.0021 + t.threat*0.0012)){
+            spawnPingAt(p, true);
+          }
+        } else {
+          // possible: gray/blue reticle, no lock, no white outline
+          drawReticle(p.x, p.y, size*0.92, `rgba(210,225,245,${0.50 + boost*0.18})`, A, false, false);
+          drawMicroLabel(p.x, p.y, t.id, "possible", A);
+          if(mapVisible > 0.7 && Math.random() < 0.0011){
+            spawnPingAt(p, false);
+          }
+        }
+      }
+
+      // pings
+      for(let i=pings.length-1;i>=0;i--){
+        const P = pings[i];
+        P.life += 1/60;
+        const k = 1 - (P.life / P.ttl);
+        if(k <= 0){ pings.splice(i,1); continue; }
+        P.r += P.speed * (1/60);
+
+        const a = P.a * k * mapVisible;
+        ctx.strokeStyle = P.confirmed
+          ? `rgba(255,60,72,${0.18*a})`
+          : `rgba(210,225,245,${0.12*a})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(P.x, P.y, P.r, 0, Math.PI*2);
+        ctx.stroke();
+
+        ctx.strokeStyle = `rgba(255,255,255,${0.05*a})`;
+        ctx.beginPath();
+        ctx.arc(P.x, P.y, P.r*0.92, 0, Math.PI*2);
+        ctx.stroke();
+      }
+
+      ctx.restore();
+
+      if(targets.length > 110) targets.splice(0, targets.length - 110);
+    }
+
+    function frameMap(now){
+      ctx.clearRect(0,0,W,H);
+      const plate = worldPlate();
+
+      // plate glow
+      ctx.save();
+      ctx.globalAlpha = 0.22 * mapVisible;
+      const pg = ctx.createRadialGradient(
+        plate.x+plate.w/2, plate.y+plate.h/2, plate.h*0.12,
+        plate.x+plate.w/2, plate.y+plate.h/2, plate.h*0.78
+      );
+      pg.addColorStop(0, 'rgba(42,168,255,0.10)');
+      pg.addColorStop(0.55, 'rgba(10,76,255,0.06)');
+      pg.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = pg;
+      ctx.fillRect(plate.x-80, plate.y-80, plate.w+160, plate.h+160);
+      ctx.restore();
+
+      // plate border
+      ctx.save();
+      ctx.globalAlpha = 0.18 * mapVisible;
+      ctx.strokeStyle = 'rgba(170,190,230,0.12)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(plate.x, plate.y, plate.w, plate.h);
+      ctx.restore();
+
+      drawContinents(plate, 0.45 * mapVisible);
+      drawGraticule(plate, 0.22 * mapVisible);
+
+      const scanY = drawScanStripe(plate);
+
+      drawHeatmap(plate, now, scanY);
+      drawTracks(now);
+      drawTargets(plate, now, scanY);
+
+      requestAnimationFrame(frameMap);
+    }
+    requestAnimationFrame(frameMap);
+
+    /* ============================
+       Loader / Title / Timeline
+    ============================ */
+    const terminal = document.getElementById('terminal');
+    const loader = document.getElementById('loader');
+    const revealTitle = document.getElementById('revealTitle');
+    const turb = document.getElementById('turb');
+    const disp = document.getElementById('disp');
+
+    // Make it “one-line bar” like screenshot: we type, but keep it in one long block.
+    const bootText =
+      "[ CORE ] INIT SUBSYSTEMS…\\n" +
+      "[ MEMORY ] MAP SEGMENTS: OK\\n" +
+      "[ SENSORS ] CALIBRATION: OK\\n" +
+      "[ CHANNEL ] ENCRYPTED STREAM: OK\\n" +
+      "[ SIGNAL ] DENOISE: OK\\n" +
+      "[ GEO ] WORLD MODEL: LOAD\\n" +
+      "[ THREAT ] ANOMALY DETECTOR: ARMED\\n" +
+      "[ MODE ] AUTONOMOUS COGNITION: ONLINE\\n\\n" +
+      ">> ЗАГРУЗКА СИСТЕМЫ…\\n\\n" +
+      ">> ЗАВЕРШЕНО.";
+
+    function typeBoot(totalMs = 5000){
+      terminal.textContent = "";
+      const start = performance.now();
+      let i = 0;
+      function tick(now){
+        const p = Math.min(1, (now - start) / totalMs);
+        const target = Math.floor(bootText.length * p);
+        if(target > i){
+          terminal.textContent = bootText.slice(0, target);
+          i = target;
+        }
+        if(p < 1) requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+    }
+
+    function startWipe(){
+      const start = performance.now();
+      function anim(now){
+        const t = (now - start) * 0.001;
+        const grow = Math.min(1, t / 0.7);
+        const settle = Math.max(0, 1 - (t-0.7)/0.95);
+        const s = 34 * grow * Math.min(1, settle + 0.22);
+
+        disp.setAttribute('scale', String(s.toFixed(2)));
+        turb.setAttribute('baseFrequency',
+          `${(0.008 + 0.010*Math.sin(t*2.1)).toFixed(4)} ${(0.020 + 0.010*Math.cos(t*1.6)).toFixed(4)}`
+        );
+
+        if(t < 1.65) requestAnimationFrame(anim);
+        else disp.setAttribute('scale', '0');
+      }
+      requestAnimationFrame(anim);
+    }
+
+    typeBoot(5000);
+
+    // show title at 5s
+    setTimeout(() => {
+      loader.classList.add('fadeOut');
+
+      revealTitle.style.opacity = "1";
+      revealTitle.style.transform = "translateY(0) scale(1)";
+      startWipe();
+
+      // show topbar + legend and map fade in
+      setTimeout(()=>{
+        topbar.classList.add('show');
+        legend.classList.add('show');
+
+        mapVisible = 0;
+        scanOn = true;
+
+        p1.classList.add('active');
+        const tStart = performance.now();
+        function fadeIn(now){
+          const p = Math.min(1, (now - tStart)/1200);
+          mapVisible = p;
+          if(p < 1) requestAnimationFrame(fadeIn);
+        }
+        requestAnimationFrame(fadeIn);
+
+        for(let i=0;i<12;i++) spawnTarget(true);
+      }, 650);
+
+      setTimeout(()=>{
+        p2.classList.add('active');
+        for(let i=0;i<18;i++) spawnTarget(false);
+      }, 650 + 900);
+
+      setTimeout(()=>{
+        p3.classList.add('active');
+        for(let i=0;i<10;i++) spawnTarget(true);
+      }, 650 + 1800);
+
+    }, 5000);
+
+    // fade title card away
+    setTimeout(() => {
+      revealTitle.classList.add('fadeOut');
+    }, 5000 + 2600);
+
+    // keep feeding targets
+    setInterval(()=>{
+      if(mapVisible > 0.6 && scanOn){
+        if(Math.random() < 0.55) spawnTarget(Math.random()<0.45);
+      }
+    }, 700);
+
+    /* ============================
+       Final core: time-slice + infinity + 3301 cipher
+    ============================ */
+    const final = document.getElementById('final');
+    const impact = document.getElementById('impact');
+    const slice = document.getElementById('slice');
+    const code3301 = document.getElementById('code3301');
+    const cipher = document.getElementById('cipher');
+
+    function runSlice(){
+      slice.classList.add('run');
+      setTimeout(()=> slice.classList.remove('run'), 360);
+    }
+
+    const T_CORE = 5000 + 2600 + 5200;
+
+    setTimeout(() => {
+      const start = performance.now();
+      const from = mapVisible;
+      function dim(now){
+        const p = Math.min(1, (now-start)/900);
+        mapVisible = from * (1 - p) * 0.22;
+        if(p < 1) requestAnimationFrame(dim);
+      }
+      requestAnimationFrame(dim);
+      scanOn = false;
+
+      runSlice();
+      impact.classList.add('show');
+      final.classList.add('show');
+      setTimeout(()=>{ impact.style.opacity = "0"; }, 780);
+    }, T_CORE);
+
+    setTimeout(() => {
+      code3301.classList.add('show');
+
+      const steps = [
+        {v:"3289", d:0},
+        {v:"3317", d:140},
+        {v:"3289", d:260},
+        {v:"3301", d:420},
+      ];
+
+      function hit(){
+        code3301.classList.add('glitch','scan');
+        setTimeout(()=> code3301.classList.remove('glitch'), 420);
+        setTimeout(()=> code3301.classList.remove('scan'), 620);
+      }
+
+      for(const s of steps){
+        setTimeout(()=>{
+          cipher.textContent = s.v;
+          code3301.setAttribute('data-text', s.v);
+          hit();
+        }, s.d);
+      }
+    }, T_CORE + 4000);
+
+    /* ============================
+       Cursor
+    ============================ */
+    const c = document.getElementById('c');
+    const r = document.getElementById('r');
+    let cmx = innerWidth/2, cmy = innerHeight/2;
+    let cx = cmx, cy = cmy, rx = cmx, ry = cmy;
+
+    addEventListener('mousemove', (e)=>{ cmx=e.clientX; cmy=e.clientY; }, {passive:true});
+    function cursorTick(){
+      cx += (cmx - cx) * 0.35;
+      cy += (cmy - cy) * 0.35;
+      c.style.left = cx + 'px';
+      c.style.top = cy + 'px';
+
+      rx += (cmx - rx) * 0.18;
+      ry += (cmy - ry) * 0.18;
+      r.style.left = rx + 'px';
+      r.style.top = ry + 'px';
+      requestAnimationFrame(cursorTick);
+    }
+    requestAnimationFrame(cursorTick);
+
+    function restart(){ location.reload(); }
+    addEventListener('keydown', (e)=>{ if(e.code==='Space' || e.code==='Enter') restart(); });
+
+    topbar.addEventListener('click', ()=>{
+      for(let i=0;i<8;i++) spawnTarget(true);
+    });
+  </script>
+</body>
+</html>
